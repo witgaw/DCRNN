@@ -357,12 +357,15 @@ train_df = pd.read_parquet("train.parquet")
 val_df = pd.read_parquet("val.parquet") 
 test_df = pd.read_parquet("test.parquet")
 
-print(f"Train samples: {{len(train_df) // 207:,}}")  # Divide by number of sensors
+# Get number of sensors for this dataset
+num_sensors = 207 if dataset_name == "METR-LA" else 325
+
+print(f"Train samples: {{len(train_df) // num_sensors:,}}")  # Divide by number of sensors
 print(f"Total records: {{len(train_df):,}}")
 print(f"Features per record: {{len(train_df.columns)}}")
 
 # Example: Get data for first time sample
-first_sample = train_df[train_df.index < 207]  # First 207 records (all sensors)
+first_sample = train_df[train_df.index < num_sensors]  # First N records (all sensors)
 print(f"Shape for one time sample: {{first_sample.shape}}")
 ```
 
