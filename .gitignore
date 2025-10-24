@@ -104,3 +104,4 @@ ENV/
 scripts/generate_training_data.py
 
 data/*
+validation_report.txt
