@@ -89,7 +89,9 @@ def copy_sensor_graph_data(dataset_name, output_dir):
                 else:
                     # For CSV files, ensure consistent formatting with headers
                     if src_filename.endswith(".csv"):
-                        df = pd.read_csv(src_path, header=None if dataset_name == "PEMS-BAY" else 0)
+                        df = pd.read_csv(
+                            src_path, header=None if dataset_name == "PEMS-BAY" else 0
+                        )
 
                         # Standardize column names based on file type
                         if "location" in dst_filename:
@@ -109,7 +111,9 @@ def copy_sensor_graph_data(dataset_name, output_dir):
 
                         # Save with consistent formatting
                         df.to_csv(dst_path, index=False)
-                        print(f"  Standardized {src_filename} as {dst_filename} ({len(df)} rows)")
+                        print(
+                            f"  Standardized {src_filename} as {dst_filename} ({len(df)} rows)"
+                        )
                     else:
                         shutil.copy2(src_path, dst_path)
                         print(f"  Copied {src_filename} as {dst_filename}")
@@ -327,19 +331,22 @@ This dataset contains traffic flow data for time series forecasting tasks, commo
 ## Dataset Structure
 
 ### Data Format
+
 - **Format**: Parquet files for efficient loading and analysis
 - **Splits**: train (70%), validation (10%), test (20%) - **temporal splits** preserving chronological order
 - **Features**: Time series traffic flow data with temporal and spatial dimensions
 
 ### Split Strategy
+
 - **Temporal splitting**: Data is split chronologically to prevent data leakage
 - **All sensors included**: Each split contains data for all sensors at each time step
 - **Training period**: Earliest 70% of time samples across all sensors
-- **Validation period**: Next 10% of time samples across all sensors  
+- **Validation period**: Next 10% of time samples across all sensors
 - **Test period**: Latest 20% of time samples across all sensors
 - **Graph structure preserved**: Spatial relationships maintained in all splits
 
 ### Data Schema
+
 - `node_id`: Sensor/node identifier (0-206 for METR-LA, 0-324 for PEMS-BAY)
 - `x_t*_d*`: Input features at different time offsets and dimensions
   - `x_t-11_d0` to `x_t+0_d0`: Traffic flow values at 12 historical time steps
@@ -349,8 +356,9 @@ This dataset contains traffic flow data for time series forecasting tasks, commo
   - `y_t+1_d1` to `y_t+12_d1`: Time-of-day features for prediction horizon
 
 ### Dataset Statistics
+
 - **Total time series samples**: ~34K (METR-LA) / ~52K (PEMS-BAY)
-- **Total records**: ~7M (METR-LA) / ~17M (PEMS-BAY) 
+- **Total records**: ~7M (METR-LA) / ~17M (PEMS-BAY)
 - **Records per sample**: 207 (METR-LA) / 325 (PEMS-BAY) sensors
 - **Temporal resolution**: 5-minute intervals
 - **Prediction horizon**: 1 hour (12 time steps)
@@ -358,27 +366,23 @@ This dataset contains traffic flow data for time series forecasting tasks, commo
 ## Usage
 
 ```python
-from datasets import load_dataset
+from datasets import Dataset, DatasetDict
 import pandas as pd
 
-# Load from Hugging Face Hub
-dataset = load_dataset("witgaw/{dataset_name}")
+# Load from local parquet files
+train_df = pd.read_parquet("{dataset_name}/train.parquet")
+val_df = pd.read_parquet("{dataset_name}/val.parquet")
+test_df = pd.read_parquet("{dataset_name}/test.parquet")
 
-# Or load locally
-train_df = pd.read_parquet("train.parquet")
-val_df = pd.read_parquet("val.parquet") 
-test_df = pd.read_parquet("test.parquet")
+ds = DatasetDict({{
+    "train": Dataset.from_pandas(train_df, preserve_index=False),
+    "val": Dataset.from_pandas(val_df, preserve_index=False),
+    "test": Dataset.from_pandas(test_df, preserve_index=False)
+}})
 
-# Get number of sensors for this dataset
-num_sensors = 207 if dataset_name == "METR-LA" else 325
-
-print(f"Train samples: {{len(train_df) // num_sensors:,}}")  # Divide by number of sensors
-print(f"Total records: {{len(train_df):,}}")
-print(f"Features per record: {{len(train_df.columns)}}")
-
-# Example: Get data for first time sample
-first_sample = train_df[train_df.index < num_sensors]  # First N records (all sensors)
-print(f"Shape for one time sample: {{first_sample.shape}}")
+print(f"Train records: {{len(ds['train']):,}}")
+print(f"Val records: {{len(ds['val']):,}}")
+print(f"Test records: {{len(ds['test']):,}}")
 ```
 
 ## Citation
@@ -386,11 +390,11 @@ print(f"Shape for one time sample: {{first_sample.shape}}")
 If you use this dataset, please cite the original DCRNN paper:
 
 ```bibtex
-@inproceedings{{li2018dcrnn,
-  title={{Diffusion Convolutional Recurrent Neural Network: Data-Driven Traffic Forecasting}},
-  author={{Li, Yaguang and Yu, Rose and Shahabi, Cyrus and Liu, Yan}},
-  booktitle={{International Conference on Learning Representations}},
-  year={{2018}}
+@inproceedings{{li2018dcrnn_traffic,
+  title={{{{Diffusion Convolutional Recurrent Neural Network: Data-Driven Traffic Forecasting}}}},
+  author={{{{Li, Yaguang and Yu, Rose and Shahabi, Cyrus and Liu, Yan}}}},
+  booktitle={{{{International Conference on Learning Representations}}}},
+  year={{{{2018}}}}
 }}
 ```
 
@@ -404,7 +408,7 @@ This dataset is derived from the original {dataset_name} dataset used in the DCR
 
 ## License
 
-MIT License - See LICENSE file for details.
+MIT License - See the [original repository LICENSE](https://github.com/liyaguang/DCRNN/blob/master/LICENSE) for details.
 """
 
     readme_path = os.path.join(output_dir, "README.md")
@@ -495,7 +499,7 @@ def generate_train_val_test(args):
             print(f"Saving {len(df):,} records to {parquet_filename}...")
             df.to_parquet(parquet_filename, compression="snappy", index=False)
 
-            # Also save metadata as JSON for compatibility
+            # Also save metadata as JSON for compatibility in a subdirectory
             metadata = {
                 "x_offsets": x_offsets.tolist(),
                 "y_offsets": y_offsets.tolist(),
@@ -511,7 +515,9 @@ def generate_train_val_test(args):
 
             import json
 
-            metadata_filename = os.path.join(output_dir, f"{cat}_metadata.json")
+            metadata_dir = os.path.join(output_dir, "metadata")
+            os.makedirs(metadata_dir, exist_ok=True)
+            metadata_filename = os.path.join(metadata_dir, f"{cat}_metadata.json")
             with open(metadata_filename, "w") as f:
                 json.dump(metadata, f, indent=2)
 
