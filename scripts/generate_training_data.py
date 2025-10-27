@@ -15,29 +15,29 @@ def copy_sensor_graph_data(dataset_name, output_dir):
     # Create sensor_graph subdirectory
     os.makedirs(output_sensor_dir, exist_ok=True)
 
-    # Mapping of datasets to their sensor files
+    # Mapping of datasets to their source files and standardized output names
     sensor_files = {
-        "METR-LA": [
-            "graph_sensor_locations.csv",
-            "distances_la_2012.csv",
-            "adj_mx.pkl",  # 207x207 adjacency matrix
-        ],
-        "PEMS-BAY": [
-            "graph_sensor_locations_bay.csv",
-            "distances_bay_2017.csv",
-            "adj_mx_bay.pkl",  # 325x325 adjacency matrix
-        ],
+        "METR-LA": {
+            "graph_sensor_locations.csv": "sensor_locations.csv",
+            "distances_la_2012.csv": "distances.csv",
+            "adj_mx.pkl": "adj_mx.pkl",  # 207x207 adjacency matrix
+        },
+        "PEMS-BAY": {
+            "graph_sensor_locations_bay.csv": "sensor_locations.csv",
+            "distances_bay_2017.csv": "distances.csv",
+            "adj_mx_bay.pkl": "adj_mx.pkl",  # 325x325 adjacency matrix
+        },
     }
 
     if dataset_name in sensor_files:
-        for filename in sensor_files[dataset_name]:
-            src_path = os.path.join(sensor_graph_dir, filename)
-            dst_path = os.path.join(output_sensor_dir, filename)
+        for src_filename, dst_filename in sensor_files[dataset_name].items():
+            src_path = os.path.join(sensor_graph_dir, src_filename)
+            dst_path = os.path.join(output_sensor_dir, dst_filename)
 
             if os.path.exists(src_path):
                 import shutil
 
-                if filename.endswith(".pkl"):
+                if src_filename.endswith(".pkl"):
                     # Convert pickle adjacency matrix to NPY format
                     try:
                         import pickle
@@ -46,16 +46,16 @@ def copy_sensor_graph_data(dataset_name, output_dir):
                             data = pickle.load(f, encoding="latin1")
                         sensor_ids, sensor_id_to_ind, adj_mx = data
 
-                        # Save as NPY file instead
-                        npy_filename = filename.replace(".pkl", ".npy")
+                        # Save as NPY file instead (using standardized name)
+                        npy_filename = dst_filename.replace(".pkl", ".npy")
                         npy_path = os.path.join(output_sensor_dir, npy_filename)
                         np.save(npy_path, adj_mx)
                         print(
-                            f"  Converted {filename} to {npy_filename} (shape: {adj_mx.shape})"
+                            f"  Converted {src_filename} to {npy_filename} (shape: {adj_mx.shape})"
                         )
 
-                        # Also save sensor mapping as JSON for reference
-                        json_filename = filename.replace(".pkl", "_mapping.json")
+                        # Also save sensor mapping as JSON for reference (using standardized name)
+                        json_filename = dst_filename.replace(".pkl", "_mapping.json")
                         json_path = os.path.join(output_sensor_dir, json_filename)
                         with open(json_path, "w") as f:
                             import json
@@ -80,15 +80,41 @@ def copy_sensor_graph_data(dataset_name, output_dir):
                             )
                         print(f"  Created {json_filename} with metadata")
                     except Exception as e:
-                        print(f"  Warning: Could not convert {filename}: {e}")
+                        print(f"  Warning: Could not convert {src_filename}: {e}")
                         # Fall back to copying the original file
                         shutil.copy2(src_path, dst_path)
-                        print(f"  Copied {filename} (pickle format)")
+                        print(
+                            f"  Copied {src_filename} as {dst_filename} (pickle format)"
+                        )
                 else:
-                    shutil.copy2(src_path, dst_path)
-                    print(f"  Copied {filename} to sensor_graph/")
+                    # For CSV files, ensure consistent formatting with headers
+                    if src_filename.endswith(".csv"):
+                        df = pd.read_csv(src_path, header=None if dataset_name == "PEMS-BAY" else 0)
+
+                        # Standardize column names based on file type
+                        if "location" in dst_filename:
+                            # For METR-LA: already has headers [index, sensor_id, latitude, longitude]
+                            # For PEMS-BAY: no headers, just [sensor_id, latitude, longitude]
+                            if dataset_name == "PEMS-BAY":
+                                df.columns = ["sensor_id", "latitude", "longitude"]
+                            else:
+                                # METR-LA already has correct headers, just drop the index column
+                                if "index" in df.columns:
+                                    df = df[["sensor_id", "latitude", "longitude"]]
+                        elif "distance" in dst_filename:
+                            # For both datasets: standardize to [from, to, cost]
+                            if dataset_name == "PEMS-BAY":
+                                df.columns = ["from", "to", "cost"]
+                            # METR-LA already has correct headers
+
+                        # Save with consistent formatting
+                        df.to_csv(dst_path, index=False)
+                        print(f"  Standardized {src_filename} as {dst_filename} ({len(df)} rows)")
+                    else:
+                        shutil.copy2(src_path, dst_path)
+                        print(f"  Copied {src_filename} as {dst_filename}")
             else:
-                print(f"  Warning: {filename} not found")
+                print(f"  Warning: {src_filename} not found")
 
     # Also create a README for the sensor graph data
     readme_content = f"""# Sensor Graph Data for {dataset_name}
@@ -99,10 +125,20 @@ This directory contains spatial information about the traffic sensors used in th
 
 """
 
+    # README content with standardized file names but dataset-specific details
     if dataset_name == "METR-LA":
-        readme_content += """- `graph_sensor_locations.csv`: Sensor coordinates (latitude, longitude) for 207 sensors
-- `distances_la_2012.csv`: Pairwise distances between sensors in meters
-- `adj_mx.npy`: Pre-computed adjacency matrix (207×207) for graph neural networks
+        sensor_count = "207"
+        matrix_size = "(207×207)"
+    elif dataset_name == "PEMS-BAY":
+        sensor_count = "325"
+        matrix_size = "(325×325)"
+    else:
+        sensor_count = "N"
+        matrix_size = "(N×N)"
+
+    readme_content += f"""- `sensor_locations.csv`: Sensor coordinates (latitude, longitude) for {sensor_count} sensors
+- `distances.csv`: Pairwise distances between sensors in meters
+- `adj_mx.npy`: Pre-computed adjacency matrix {matrix_size} for graph neural networks
 - `adj_mx_mapping.json`: Metadata and parameters used to generate the adjacency matrix
 
 ## Usage
@@ -112,39 +148,15 @@ import pandas as pd
 import numpy as np
 
 # Load sensor locations
-locations = pd.read_csv('sensor_graph/graph_sensor_locations.csv')
-print(f"Dataset has {len(locations)} sensors")
+locations = pd.read_csv('sensor_graph/sensor_locations.csv')
+print(f"Dataset has {{len(locations)}} sensors")
 
 # Load distances (for custom graph construction)
-distances = pd.read_csv('sensor_graph/distances_la_2012.csv')
+distances = pd.read_csv('sensor_graph/distances.csv')
 
 # Load pre-computed adjacency matrix
 adj_matrix = np.load('sensor_graph/adj_mx.npy')
-print(f"Adjacency matrix shape: {adj_matrix.shape}")
-```
-"""
-    elif dataset_name == "PEMS-BAY":
-        readme_content += """- `graph_sensor_locations_bay.csv`: Sensor coordinates (latitude, longitude) for 325 sensors  
-- `distances_bay_2017.csv`: Pairwise distances between sensors in meters
-- `adj_mx_bay.npy`: Pre-computed adjacency matrix (325×325) for graph neural networks
-- `adj_mx_bay_mapping.json`: Metadata and parameters used to generate the adjacency matrix
-
-## Usage
-
-```python
-import pandas as pd
-import numpy as np
-
-# Load sensor locations
-locations = pd.read_csv('sensor_graph/graph_sensor_locations_bay.csv')
-print(f"Dataset has {len(locations)} sensors")
-
-# Load distances (for custom graph construction)
-distances = pd.read_csv('sensor_graph/distances_bay_2017.csv')
-
-# Load pre-computed adjacency matrix
-adj_matrix = np.load('sensor_graph/adj_mx_bay.npy')
-print(f"Adjacency matrix shape: {adj_matrix.shape}")
+print(f"Adjacency matrix shape: {{adj_matrix.shape}}")
 ```
 """
 
